@@ -7,9 +7,25 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
+add_library(quadrotor_ukf_ros2 SHARED src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
+include_directories(include)
+ament_target_dependencies(quadrotor_ukf_ros2 rclcpp geometry_msgs nav_msgs std_msgs )
+
+install(TARGETS
+  quadrotor_ukf_ros2
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -23,5 +39,6 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS})
 ament_package()
 
