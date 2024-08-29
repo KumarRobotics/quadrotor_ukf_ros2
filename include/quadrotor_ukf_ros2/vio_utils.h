@@ -11,12 +11,11 @@
 
 #include <Eigen/Geometry>
 #include <Eigen/SVD>
-#include <ros/ros.h>
 #include <math.h>
 #include <iostream>
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/Vector3.h>
-#include <geometry_msgs/Quaternion.h>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
 //using namespace std;
 
 struct VIOUtil
@@ -52,11 +51,11 @@ struct VIOUtil
 };
 
 struct Conversions {
-  static Eigen::Matrix<double,3,1> PointToVec(const geometry_msgs::Point &p);
-  static geometry_msgs::Point VecToPoint(const Eigen::Matrix<double,3,1> &v);
-  static Eigen::Matrix<double,3,1> Vector3ToVec(const geometry_msgs::Vector3 &p);
-  static geometry_msgs::Vector3 VecToVector3(const Eigen::Matrix<double,3,1> &v);
-  static Eigen::Quaternion<double> QuatToQuat(const geometry_msgs::Quaternion &q);
+  static Eigen::Matrix<double,3,1> PointToVec(const geometry_msgs::msg::Point &p);
+  static geometry_msgs::msg::Point VecToPoint(const Eigen::Matrix<double,3,1> &v);
+  static Eigen::Matrix<double,3,1> Vector3ToVec(const geometry_msgs::msg::Vector3 &p);
+  static geometry_msgs::msg::Vector3 VecToVector3(const Eigen::Matrix<double,3,1> &v);
+  static Eigen::Quaternion<double> QuatToQuat(const geometry_msgs::msg::Quaternion &q);
 };
 
 class SE3State{
