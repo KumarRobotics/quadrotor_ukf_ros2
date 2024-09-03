@@ -555,39 +555,39 @@ Eigen::Matrix<double, 3,1> VIOUtil::R_to_ypr(const Eigen::Matrix<double, 3,3>& R
 }
 
 // Conversions
-Eigen::Matrix<double,3,1> Conversions::PointToVec(const geometry_msgs::Point &p)
+Eigen::Matrix<double,3,1> Conversions::PointToVec(const geometry_msgs::msg::Point &p)
 {
   Eigen::Matrix<double,3,1>  v;
   v << p.x, p.y, p.z, 0.0;
   return v;
 }
 
-geometry_msgs::Point Conversions::VecToPoint(const Eigen::Matrix<double,3,1> &v)
+geometry_msgs::msg::Point Conversions::VecToPoint(const Eigen::Matrix<double,3,1> &v)
 {
-  geometry_msgs::Point p;
+  geometry_msgs::msg::Point p;
   p.x = v(0);
   p.y = v(1);
   p.z = v(2);
   return p;
 }
 
-Eigen::Matrix<double,3,1> Conversions::Vector3ToVec(const geometry_msgs::Vector3 &p)
+Eigen::Matrix<double,3,1> Conversions::Vector3ToVec(const geometry_msgs::msg::Vector3 &p)
 {
   Eigen::Matrix<double,3,1>  v;
   v << p.x, p.y, p.z;
   return v;
 }
 
-geometry_msgs::Vector3 Conversions::VecToVector3(const Eigen::Matrix<double,3,1> &v)
+geometry_msgs::msg::Vector3 Conversions::VecToVector3(const Eigen::Matrix<double,3,1> &v)
 {
-  geometry_msgs::Vector3 p;
+  geometry_msgs::msg::Vector3 p;
   p.x = v(0);
   p.y = v(1);
   p.z = v(2);
   return p;
 }
 
-Eigen::Quaternion<double> Conversions::QuatToQuat(const geometry_msgs::Quaternion &q)
+Eigen::Quaternion<double> Conversions::QuatToQuat(const geometry_msgs::msg::Quaternion &q)
 {
   Eigen::Quaternion<double> quat(q.w,q.x,q.y,q.z);
   quat.normalize();
@@ -597,7 +597,6 @@ Eigen::Quaternion<double> Conversions::QuatToQuat(const geometry_msgs::Quaternio
 Eigen::Matrix<double, 3,3> VIOUtil::ypr_to_R(const Eigen::Matrix<double, 3,1>& ypr)
 {
 
-  ROS_DEBUG_STREAM("ypr_matrix: " << std::endl << ypr.matrix());
   double c, s;
   Eigen::Matrix<double, 3,3> Rz;
   Rz.setZero();

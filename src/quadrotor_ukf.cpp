@@ -48,7 +48,7 @@ bool QuadrotorUKF::isInitialized() { return (initMeasure_); }
 
 Eigen::Matrix<double, Eigen::Dynamic, 1> QuadrotorUKF::GetState() { return xHist_.front(); }
 
-ros::Time QuadrotorUKF::GetStateTime(){ return xTimeHist_.front(); }
+rclcpp::Time QuadrotorUKF::GetStateTime(){ return xTimeHist_.front(); }
 
 Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>       QuadrotorUKF::GetStateCovariance() { return P_; }
 
@@ -69,7 +69,7 @@ void QuadrotorUKF::SetUKFParameters(double _alpha, double _beta, double _kappa)
   GenerateWeights();
 }
 
-void QuadrotorUKF::SetInitPose(Eigen::Matrix<double, Eigen::Dynamic, 1> p, ros::Time time)
+void QuadrotorUKF::SetInitPose(Eigen::Matrix<double, Eigen::Dynamic, 1> p, rclcpp::Time time)
 {
   Eigen::Matrix<double, Eigen::Dynamic, 1> x;
   x.setZero(stateCnt_, 1);
@@ -77,49 +77,24 @@ void QuadrotorUKF::SetInitPose(Eigen::Matrix<double, Eigen::Dynamic, 1> p, ros::
   //x.rows(6,8)  = p.rows(3,5);
   x.block<3,1>(0,0) = p.block<3,1>(0,0);
   x.block<3,1>(6,0) = p.block<3,1>(3,0);
-  bool x_nan = false;
-  for (int i = 0; i < x.rows(); ++i) {
-    if (std::isnan(x(i, 0))) {
-      x_nan = true;
-    }
-  }
-  if (x_nan) {
-    ROS_DEBUG_STREAM("x Matrix Contains NAN!");
-    ROS_DEBUG_STREAM("Shutting Down from within SetInitPose");
-    ROS_DEBUG_STREAM(x.matrix());
-    ros::shutdown();
-  }
+
+
   xHist_.push_front(x);
   uHist_.push_front(Eigen::MatrixXd::Zero(6, 1));
   xTimeHist_.push_front(time);
   initMeasure_ = true;
 
-  ROS_DEBUG_STREAM("Pose Initialized " << p);
 }
 
 bool QuadrotorUKF::ProcessUpdate(Eigen::Matrix<double, Eigen::Dynamic, 1> u, 
-                                 ros::Time time)
+                                 rclcpp::Time time)
 {
   if (!initMeasure_ || !initGravity_)
     return false;
 
   // Just update state, defer covariance update
-  double dt = (time-xTimeHist_.front()).toSec();
-  ROS_DEBUG_STREAM("PM was run from ProcessUpdate");
-  ROS_DEBUG_STREAM("xHist_.front() after dt calc: " << std::endl << xHist_.front().matrix());
+  double dt = (time-xTimeHist_.front()).seconds();
   Eigen::Matrix<double, Eigen::Dynamic, 1> x = ProcessModel(xHist_.front(), u, Eigen::MatrixXd::Zero(procNoiseCnt_,1), dt);
-  bool x_nan = false;
-  for (int i = 0; i < x.rows(); ++i) {
-    if (std::isnan(x(i, 0))) {
-      x_nan = true;
-    }
-  }
-  if (x_nan) {
-    ROS_DEBUG_STREAM("x Matrix Contains NAN!");
-    ROS_DEBUG_STREAM("Shutting Down from within ProcessUpdate...");
-    ROS_DEBUG_STREAM(x.matrix());
-    ros::shutdown();
-  }
   xHist_.push_front(x);
   uHist_.push_front(u);
   xTimeHist_.push_front(time);
@@ -129,7 +104,7 @@ bool QuadrotorUKF::ProcessUpdate(Eigen::Matrix<double, Eigen::Dynamic, 1> u,
 
 bool QuadrotorUKF::MeasurementUpdateSLAM(const Eigen::Matrix<double, Eigen::Dynamic, 1>& z, 
                                          const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>& RnSLAM, 
-                                         ros::Time time)
+                                         rclcpp::Time time)
 {
   // Init
   if (!initMeasure_ || !initGravity_)
@@ -138,7 +113,7 @@ bool QuadrotorUKF::MeasurementUpdateSLAM(const Eigen::Matrix<double, Eigen::Dyna
   // A priori covariance
   std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator kx;
   std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator ku;
-  std::list<ros::Time>::iterator kt;
+  std::list<rclcpp::Time>::iterator kt;
 
   PropagateAprioriCovariance(time, kx, ku, kt);
 
@@ -150,18 +125,13 @@ bool QuadrotorUKF::MeasurementUpdateSLAM(const Eigen::Matrix<double, Eigen::Dyna
   // Compute Kalman Gain
   Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S = H * P_ * H.transpose() + RnSLAM;
 
-  ROS_DEBUG_STREAM("P_: " << std::endl << P_);
-  ROS_DEBUG_STREAM("H.transpose: " << std::endl << H.transpose());
-  ROS_DEBUG_STREAM("S from MeasurementUpdateSLAM before det_check: " << std::endl << S);
   // Clean way to get S_inv
   double det_S = S.determinant();
   Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S_inv;
   
   if (det_S != 0.0) {
-    ROS_DEBUG_STREAM("S is invertible!");
     S_inv = S.inverse();
   } else {
-    ROS_DEBUG_STREAM("S is not invertible!");
     Eigen::HouseholderQR<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>> qr(S);
     S_inv = qr.solve(Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Identity(S.rows(), S.cols()));
   }
@@ -170,11 +140,8 @@ bool QuadrotorUKF::MeasurementUpdateSLAM(const Eigen::Matrix<double, Eigen::Dyna
   // H.transpose * S_inv is NOT supposed to be P_.inverse()
   Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> K = P_ * H.transpose() * S_inv;
 
-  ROS_DEBUG_STREAM("S from MeasurementUpdateSLAM after det_check: " << std::endl << S);
-  ROS_DEBUG_STREAM("S_inv from MeasurementUpdateSLAM after det_check: " << std::endl << S_inv.matrix());
   bool s_inv_solution_exists = (S * S_inv).isApprox(Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Identity(S.rows(), S.cols())); 
   if (!s_inv_solution_exists) {
-    ROS_DEBUG_STREAM("Failure to produce inverse!");
   }
   // Innovation
   Eigen::Matrix<double, Eigen::Dynamic, 1> inno = z - za;
@@ -182,14 +149,11 @@ bool QuadrotorUKF::MeasurementUpdateSLAM(const Eigen::Matrix<double, Eigen::Dyna
   // Handle angle jumps
   inno(3,0) = asin(sin(inno(3,0)));
   // Posteriori Mean
-  ROS_DEBUG_STREAM("kx from MeasurementUpdateSLAM before assignment: " << *kx);
-  ROS_DEBUG_STREAM("K from MeasurementUpdateSLAM before assignment: " << K);
   x += K * inno;
   *kx = x;
   // Posteriori Covariance
   P_ = P_ - K * H * P_;
   // Propagate Aposteriori State
-  ROS_DEBUG_STREAM("kx from MeasurementUpdateSLAM after assignment: " << *kx);
   PropagateAposterioriState(kx, ku, kt);
 
   return true;
@@ -246,13 +210,10 @@ void QuadrotorUKF::GenerateSigmaPoints()
   Xaa.col(0) = xaa;
   Xaa.block(0,1,L_,L_) =   xaaMat.block(0,0,L_,L_) + gamma_ * sqrtPaa;
   Xaa.block(0,L_+1,L_,L_) = xaaMat.block(0,0,L_,L_) - gamma_ * sqrtPaa;
-  ROS_DEBUG_STREAM("Xaa Matrix: " << std::endl << Xaa.matrix());
   //Xa = Xaa.rows(0, stateCnt-1);
   //Va = Xaa.rows(stateCnt, L-1);
   Xa_ = Xaa.block(0,0,stateCnt_, 2*L_+1);
-  ROS_DEBUG_STREAM("Xa_ Matrix: " << std::endl << Xa_.matrix());
   Va_ = Xaa.block(stateCnt_,0,L_-stateCnt_, 2*L_+1);
-  ROS_DEBUG_STREAM("Va_ Matrix: " << std::endl << Va_.matrix());
 }
 
 Eigen::Matrix<double, Eigen::Dynamic, 1> QuadrotorUKF::ProcessModel(const Eigen::Matrix<double, Eigen::Dynamic, 1>& x, 
@@ -261,7 +222,6 @@ Eigen::Matrix<double, Eigen::Dynamic, 1> QuadrotorUKF::ProcessModel(const Eigen:
                                                                     double dt)
 {
   Eigen::Matrix<double, 3, 3> R;
-  ROS_DEBUG_STREAM("Running ypr_to_R from PM...");
   R = VIOUtil::ypr_to_R(x.block<3,1>(6,0));//x.rows(6,8)
   Eigen::Matrix<double, 3, 1> ag;
   ag(0,0) = 0;
@@ -309,20 +269,20 @@ Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> QuadrotorUKF::MeasurementM
   return H;
 }
 
-void QuadrotorUKF::PropagateAprioriCovariance(const ros::Time time,
+void QuadrotorUKF::PropagateAprioriCovariance(const rclcpp::Time time,
                                               std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator& kx, 
                                               std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator& ku, 
-                                              std::list<ros::Time>::iterator& kt)
+                                              std::list<rclcpp::Time>::iterator& kt)
 {
   // Find aligned state, Time
   double mdt = NUM_INF;
   std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator k1 = xHist_.begin();
   std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator k2 = uHist_.begin();
-  std::list<ros::Time>::iterator k3 = xTimeHist_.begin();
+  std::list<rclcpp::Time>::iterator k3 = xTimeHist_.begin();
   int k4 = 0;
   for (; k1 != xHist_.end(); k1++, k2++, k3++, k4++)
   {
-    double dt = fabs((*k3 - time).toSec());
+    double dt = fabs((*k3 - time).seconds());
     if (dt < mdt)
     {
       mdt = dt;
@@ -336,10 +296,10 @@ void QuadrotorUKF::PropagateAprioriCovariance(const ros::Time time,
     }
   }
   Eigen::Matrix<double, Eigen::Dynamic, 1> cx = *kx;
-  ros::Time ct = *kt;
+  rclcpp::Time ct = *kt;
   Eigen::Matrix<double, Eigen::Dynamic, 1> px = xHist_.back();
-  ros::Time pt = xTimeHist_.back();
-  double dt = (ct - pt).toSec();
+  rclcpp::Time pt = xTimeHist_.back();
+  double dt = (ct - pt).seconds();
   if (fabs(dt) < 0.001)
   {
     kx = xHist_.begin();
@@ -352,7 +312,6 @@ void QuadrotorUKF::PropagateAprioriCovariance(const ros::Time time,
   uHist_.erase(k2, uHist_.end());
   xTimeHist_.erase(k3, xTimeHist_.end());
   // rot, gravity
-  ROS_DEBUG_STREAM("Running ypr_to_R from PropagateAprioriCovariance...");
   Eigen::Matrix<double, 3, 3> pR = VIOUtil::ypr_to_R(px.block<3,1>(6,0));//px.rows(6,8)
   Eigen::Matrix<double, 3, 1> ag;
   ag(0,0) = 0;
@@ -376,7 +335,6 @@ void QuadrotorUKF::PropagateAprioriCovariance(const ros::Time time,
   // Mean
   for (int k = 0; k < 2*L_+1; k++)
   {
-    ROS_DEBUG_STREAM("PM was run from PropagateAprioriCovariance");
     Xa_.col(k) = ProcessModel(Xa_.col(k), u, Va_.col(k), dt);
   }
 
@@ -402,23 +360,16 @@ void QuadrotorUKF::PropagateAprioriCovariance(const ros::Time time,
 
   // Covariance
   P_.setZero(Xa_.rows(), Xa_.rows());//.zeros();
-  ROS_DEBUG_STREAM("wc_: " << wc_.matrix());
   for (int k = 0; k < 2*L_+1; k++)
   {
     Eigen::Matrix<double, Eigen::Dynamic, 1> d = Xa_.col(k) - xa;
-    ROS_DEBUG_STREAM("d: " << d.matrix());
-    ROS_DEBUG_STREAM("Xa_.col(k): " <<  Xa_.col(k));
-    ROS_DEBUG_STREAM("xa: " << xa);
     P_ += wc_(0,k) * d * d.transpose();
   }
-
-  ROS_DEBUG_STREAM("P_: " << P_.matrix());
-
 
   return;
 }
 
-void QuadrotorUKF::PropagateAposterioriState(std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator kx, std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator ku, std::list<ros::Time>::iterator kt)
+void QuadrotorUKF::PropagateAposterioriState(std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator kx, std::list<Eigen::Matrix<double, Eigen::Dynamic, 1> >::iterator ku, std::list<rclcpp::Time>::iterator kt)
 {
   for (; kx != xHist_.begin(); kx--, ku--, kt--)
   {
@@ -426,24 +377,10 @@ void QuadrotorUKF::PropagateAposterioriState(std::list<Eigen::Matrix<double, Eig
     _kx--;
     std::list<Eigen::Matrix<double, Eigen::Dynamic, 1>>::iterator _ku = ku;
     _ku--;
-    std::list<ros::Time>::iterator _kt = kt;
+    std::list<rclcpp::Time>::iterator _kt = kt;
     _kt--;
-    ROS_DEBUG_STREAM("*kx: " << *kx);
-    ROS_DEBUG_STREAM("*_ku: " << *_ku);
-    ROS_DEBUG_STREAM("*_kt: " << *_kt);
-    ROS_DEBUG_STREAM("PM was run from PropagateAposterioriState");
-    *_kx = ProcessModel(*kx, *_ku, Eigen::MatrixXd::Zero(procNoiseCnt_,1), (*_kt - *kt).toSec());
+    *_kx = ProcessModel(*kx, *_ku, Eigen::MatrixXd::Zero(procNoiseCnt_,1), (*_kt - *kt).seconds());
   }
 }
 
-void QuadrotorUKF::PrintxHist() {
-  ROS_DEBUG_STREAM("xHist: ");
-  for (auto v: xHist_) {
-    ROS_DEBUG_STREAM(std::endl << v.matrix());
-  }
-  ROS_DEBUG_STREAM("xTimeHist: ");
-  for (auto v: xTimeHist_) {
-    ROS_DEBUG_STREAM(std::endl << v);
-  }
-}
 
