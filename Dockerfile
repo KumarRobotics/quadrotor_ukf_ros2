@@ -11,6 +11,7 @@ COPY ./src ./src
 COPY ./include ./include
 COPY ./CMakeLists.txt ./
 COPY ./package.xml ./
+COPY ./bags ../../../
 
 WORKDIR /root/qukf_ws/
 # RUN . /opt/ros/humble/setup.sh && colcon build
