@@ -15,16 +15,14 @@ find_package(Eigen3 3.3 REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
-add_library(quadrotor_ukf_ros2 SHARED src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
 include_directories(include)
+add_executable(quadrotor_ukf_ros2 src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
 ament_target_dependencies(quadrotor_ukf_ros2 rclcpp geometry_msgs nav_msgs std_msgs sensor_msgs)
 target_link_libraries(quadrotor_ukf_ros2 Eigen3::Eigen)
 
 install(TARGETS
   quadrotor_ukf_ros2
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 
