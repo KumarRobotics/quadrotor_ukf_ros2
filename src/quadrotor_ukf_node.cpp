@@ -47,7 +47,7 @@ private:
 // Callback for IMU data
 void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
 {
-    RCLCPP_INFO(this->get_logger(), "Received IMU data");
+    // RCLCPP_INFO(this->get_logger(), "Received IMU data");
     static int calLimit = 100;
     static int calCnt   = 0;
     static Eigen::Matrix<double, 3, 1> ag;
@@ -69,6 +69,7 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
       ag /= calLimit;
       double g = ag.norm();//norm(ag,2);
       quadrotorUKF.SetGravity(g);
+      RCLCPP_INFO(this->get_logger(), "Calibration Complete g: %f", g);
     }
     else if (quadrotorUKF.ProcessUpdate(u, msg->header.stamp))  // Process Update
     {
