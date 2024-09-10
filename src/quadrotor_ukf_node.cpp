@@ -1,12 +1,17 @@
 #include "rclcpp/rclcpp.hpp"
-#include "nav_msgs/msg/odometry.hpp"  // Change this to the actual message type you'll use for each callback
-#include "sensor_msgs/msg/imu.hpp"  // Change this to the actual message type you'll use for each callback
-#include "geometry_msgs/msg/pose_stamped.hpp"  // Change this to the actual message type you'll use for each callback
-#include "geometry_msgs/msg/transform_stamped.hpp"  // Change this to the actual message type you'll use for each callback
-                                               //
+
+#include "nav_msgs/msg/odometry.hpp"  
+#include "sensor_msgs/msg/imu.hpp"  
+#include "geometry_msgs/msg/pose_stamped.hpp"  
+#include "geometry_msgs/msg/transform_stamped.hpp"  
+                                                    
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2_ros/static_transform_broadcaster.h"
+                                               
 #include "quadrotor_ukf_ros2/quadrotor_ukf.h"
 #include "quadrotor_ukf_ros2/vio_utils.h"
 
+#include <memory>
 
 class QuadrotorUKFNode : public rclcpp::Node
 {
@@ -99,6 +104,7 @@ public:
 
         // ROS2-Specific Initialization:
         // qos profile to match voxl-mpa-to-ros2
+        tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
         rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
         qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
         qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
@@ -118,13 +124,16 @@ public:
 
         // output goal is to produce accurate odom at 300Hz on RELEASE build
         ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
+
     }
 
+    void init();
+
+
+private:
     void imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg);
     void vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg);
     void pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr pose);
-
-private:
 
     // Subscribers
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr vio_subscriber_;
@@ -132,6 +141,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher;
 
+    std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
     //arma::mat H_C_B = arma::eye<mat>(4,4);//Never use reshape
     Eigen::Matrix<double, 4, 4> H_C_B_;
     Eigen::Matrix<double, 4, 4> H_I_B_;
@@ -206,6 +216,11 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
     }   
 }
 
+void QuadrotorUKFNode::init() {
+  
+    RCLCPP_INFO(this->get_logger(), "Quadrotor UKF Initialized");
+}
+
 // Callback for VIO data
 void QuadrotorUKFNode::vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg)
 {
@@ -218,6 +233,22 @@ void QuadrotorUKFNode::pose_to_tf_callback(const geometry_msgs::msg::PoseStamped
 {
     RCLCPP_INFO(this->get_logger(), "Received pose to TF data");
     // TODO: Convert pose to TF and publish it
+    static geometry_msgs::msg::TransformStamped static_transformStamped;
+    static_transformStamped.header.stamp = this->get_clock()->now();
+    static_transformStamped.header.frame_id = "map_ned";
+    static_transformStamped.child_frame_id = "base_link_frd";
+
+    static_transformStamped.transform.translation.x = msg->pose.position.x;
+    static_transformStamped.transform.translation.y = msg->pose.position.y;
+    static_transformStamped.transform.translation.z = msg->pose.position.z;
+
+    static_transformStamped.transform.rotation.x = msg->pose.orientation.x;
+    static_transformStamped.transform.rotation.y = msg->pose.orientation.y;
+    static_transformStamped.transform.rotation.z = msg->pose.orientation.z;
+    static_transformStamped.transform.rotation.w = msg->pose.orientation.w;
+
+
+    tf_broadcaster_->sendTransform(static_transformStamped);
 }
 
 int main(int argc, char *argv[])

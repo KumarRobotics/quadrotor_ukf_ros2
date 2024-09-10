@@ -27,6 +27,6 @@ COPY ./.bashrc ../../../
 
 
 WORKDIR /root/qukf_ws/
-RUN . /opt/ros/humble/setup.sh && colcon build
+#RUN . /opt/ros/humble/setup.sh && colcon build
 
 
