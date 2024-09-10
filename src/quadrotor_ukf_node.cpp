@@ -1,13 +1,17 @@
 #include "rclcpp/rclcpp.hpp"
-#include "nav_msgs/msg/odometry.hpp"  // Change this to the actual message type you'll use for each callback
-#include "sensor_msgs/msg/imu.hpp"  // Change this to the actual message type you'll use for each callback
-#include "geometry_msgs/msg/pose_stamped.hpp"  // Change this to the actual message type you'll use for each callback
-                                               //
+
+#include "nav_msgs/msg/odometry.hpp"  
+#include "sensor_msgs/msg/imu.hpp"  
+#include "geometry_msgs/msg/pose_stamped.hpp"  
+#include "geometry_msgs/msg/transform_stamped.hpp"  
+                                                    
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2_ros/static_transform_broadcaster.h"
+                                               
 #include "quadrotor_ukf_ros2/quadrotor_ukf.h"
 #include "quadrotor_ukf_ros2/vio_utils.h"
 
-static QuadrotorUKF quadrotorUKF;
-static std::string frame_id;
+#include <memory>
 
 class QuadrotorUKFNode : public rclcpp::Node
 {
@@ -15,37 +19,150 @@ public:
     QuadrotorUKFNode()
     : Node("quadrotor_ukf_ros2")
     {
+        // Quadrotor UKF Initialization
+        H_C_B_(0,0) = 1;
+        H_C_B_(0,1) = 0;
+        H_C_B_(0,2) = 0;
+        H_C_B_(0,3) = 0;
+        H_C_B_(1,0) = 0;
+        H_C_B_(1,1) = -1;
+        H_C_B_(1,2) = 0;
+        H_C_B_(1,3) = 0;
+        H_C_B_(2,0) = 0;
+        H_C_B_(2,1) = 0;
+        H_C_B_(2,2) = -1;
+        H_C_B_(2,3) = 0.0;
+        H_C_B_(3,0) = 0;
+        H_C_B_(3,1) = 0;
+        H_C_B_(3,2) = 0;
+        H_C_B_(3,3) = 1;
+
+        calLimit_ = 100;
+        calCnt_   = 0;
+
+        double alpha;
+        double beta;
+        double kappa;
+        double stdAcc[3]     = {0,0,0};
+        double stdW[3]       = {0,0,0};
+        double stdAccBias[3] = {0,0,0};
+
+        // Parameter Declaration
+        this->declare_parameter<std::string>("odom", std::string("odom"));
+        this->declare_parameter<std::string>("imu", std::string("imu"));
+        this->declare_parameter<std::string>("base_link", std::string("base_link"));
+        this->declare_parameter<std::string>("base_link_frd", std::string("base_link_frd"));
+        this->declare_parameter<std::string>("imu_rotated_frame_id", std::string("imu_rotated_base"));
+        this->declare_parameter<double>("alpha", 0.4);
+        this->declare_parameter<double>("beta" , 2.0);
+        this->declare_parameter<double>("kappa", 0.0);
+        this->declare_parameter<double>("noise_std/process/acc/x", 0.2);
+        this->declare_parameter<double>("noise_std/process/acc/y", 0.2);
+        this->declare_parameter<double>("noise_std/process/acc/z", 0.2);
+        this->declare_parameter<double>("noise_std/process/w/x", 0.1);
+        this->declare_parameter<double>("noise_std/process/w/y", 0.1);
+        this->declare_parameter<double>("noise_std/process/w/z", 0.1);
+        this->declare_parameter<double>("noise_std/process/acc_bias/x", 0.05);
+        this->declare_parameter<double>("noise_std/process/acc_bias/y", 0.05);
+        this->declare_parameter<double>("noise_std/process/acc_bias/z", 0.05);
+
+        // Parameter Retrieval
+        this->get_parameter("odom", odom_frame_id_);
+        this->get_parameter("imu", imu_frame_id_);
+        this->get_parameter("base_link", body_frame_id_);
+        this->get_parameter("base_link_frd", body_local_frame_id_);
+        this->get_parameter("imu_rotated_frame_id", imu_rotated_base_frame_id_);
+        this->get_parameter("alpha", alpha);
+        this->get_parameter("beta" , beta );
+        this->get_parameter("kappa", kappa);
+        this->get_parameter("noise_std/process/acc/x", stdAcc[0]);
+        this->get_parameter("noise_std/process/acc/y", stdAcc[1]);
+        this->get_parameter("noise_std/process/acc/z", stdAcc[2]);
+        this->get_parameter("noise_std/process/w/x", stdW[0]);
+        this->get_parameter("noise_std/process/w/y", stdW[1]);
+        this->get_parameter("noise_std/process/w/z", stdW[2]);
+        this->get_parameter("noise_std/process/acc_bias/x", stdAccBias[0]);
+        this->get_parameter("noise_std/process/acc_bias/y", stdAccBias[1]);
+        this->get_parameter("noise_std/process/acc_bias/z", stdAccBias[2]);
+
+        // Fixed process noise
+        Eigen::Matrix<double, 9, 9> Rv;
+        Rv.setIdentity();// = eye<mat>(9,9);
+        Rv(0,0)   = stdAcc[0] * stdAcc[0];
+        Rv(1,1)   = stdAcc[1] * stdAcc[1];
+        Rv(2,2)   = stdAcc[2] * stdAcc[2];
+        Rv(3,3)   = stdW[0] * stdW[0];
+        Rv(4,4)   = stdW[1] * stdW[1];
+        Rv(5,5)   = stdW[2] * stdW[2];
+        Rv(6,6)   = stdAccBias[0] * stdAccBias[0];
+        Rv(7,7)   = stdAccBias[1] * stdAccBias[1];
+        Rv(8,8)   = stdAccBias[2] * stdAccBias[2];
+
+        // Initialize UKF
+        quadrotorUKF_.SetUKFParameters(alpha, beta, kappa);
+        quadrotorUKF_.SetImuCovariance(Rv);
+
+        // ROS2-Specific Initialization:
+        // qos profile to match voxl-mpa-to-ros2
+        tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+        rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
+        qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
+        qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
+
         // Define the subscriptions to topics
+        // qvio/odometry for QuadrotorUKF Update
         vio_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/qvio/odometry", 10, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
+            "/qvio/odometry", qos_profile, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
 
+        // /imu_apps for QuadrotorUKF Prediction
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/imu_apps", 10, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
+            "/imu_apps", qos_profile, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
 
+        // /qvio/pose for TF Correction
         pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/qvio/pose", 10, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
+            "/qvio/pose", qos_profile, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
 
+        // output goal is to produce accurate odom at 300Hz on RELEASE build
         ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
+
     }
+
+    void init();
+
+
+private:
     void imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg);
     void vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg);
     void pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr pose);
-
-private:
 
     // Subscribers
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr vio_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_subscriber_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher;
+
+    std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
+    //arma::mat H_C_B = arma::eye<mat>(4,4);//Never use reshape
+    Eigen::Matrix<double, 4, 4> H_C_B_;
+    Eigen::Matrix<double, 4, 4> H_I_B_;
+
+    QuadrotorUKF quadrotorUKF_;
+    std::string odom_frame_id_;
+    std::string frame_id;
+
+    int calLimit_;
+    int calCnt_;
+    Eigen::Matrix<double, 3, 1> average_g_;
+
+    std::string imu_frame_id_, imu_rotated_base_frame_id_, body_frame_id_, body_local_frame_id_;
+    bool tf_initialized_;
+    geometry_msgs::msg::TransformStamped tf_imu_to_base_;
 };
 
 // Callback for IMU data
 void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
 {
-    RCLCPP_INFO(this->get_logger(), "Received IMU data");
-    static int calLimit = 100;
-    static int calCnt   = 0;
+    // RCLCPP_INFO(this->get_logger(), "Received IMU data");
     static Eigen::Matrix<double, 3, 1> ag;
     Eigen::Matrix<double, 6, 1> u;
     u(0,0) = msg->linear_acceleration.x;
@@ -54,25 +171,26 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
     u(3,0) = msg->angular_velocity.x;
     u(4,0) = -msg->angular_velocity.y;
     u(5,0) = -msg->angular_velocity.z;
-    if (calCnt < calLimit)       // Calibration
+    if (calCnt_ < calLimit_)       // Calibration
     {
-      calCnt++;
+      calCnt_++;
       ag += u.block(0,0,3,1);//rows(0,2);
     }
-    else if (calCnt == calLimit) // Save gravity vector
+    else if (calCnt_ == calLimit_) // Save gravity vector
     {
-      calCnt++;
-      ag /= calLimit;
+      calCnt_++;
+      ag /= calLimit_;
       double g = ag.norm();//norm(ag,2);
-      quadrotorUKF.SetGravity(g);
+      quadrotorUKF_.SetGravity(g);
+      RCLCPP_INFO(this->get_logger(), "Calibration Complete g: %f", g);
     }
-    else if (quadrotorUKF.ProcessUpdate(u, msg->header.stamp))  // Process Update
+    else if (quadrotorUKF_.ProcessUpdate(u, msg->header.stamp))  // Process Update
     {
       nav_msgs::msg::Odometry odomUKF;
       // Publish odom
-      odomUKF.header.stamp = quadrotorUKF.GetStateTime();
+      odomUKF.header.stamp = quadrotorUKF_.GetStateTime();
       odomUKF.header.frame_id = frame_id;
-      Eigen::Matrix<double, Eigen::Dynamic, 1> x = quadrotorUKF.GetState();
+      Eigen::Matrix<double, Eigen::Dynamic, 1> x = quadrotorUKF_.GetState();
       odomUKF.pose.pose.position.x = x(0,0);
       odomUKF.pose.pose.position.y = x(1,0);
       odomUKF.pose.pose.position.z = x(2,0);
@@ -87,7 +205,7 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
       odomUKF.twist.twist.angular.x = u(3,0);
       odomUKF.twist.twist.angular.y = u(4,0);
       odomUKF.twist.twist.angular.z = u(5,0);
-      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>  P = quadrotorUKF.GetStateCovariance();
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>  P = quadrotorUKF_.GetStateCovariance();
       for (int j = 0; j < 6; j++)
         for (int i = 0; i < 6; i++)
           odomUKF.pose.covariance[i+j*6] = P((i<3)?i:i+3 , (j<3)?j:j+3);
@@ -96,6 +214,11 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
           odomUKF.twist.covariance[i+j*6] = P(i+3 , j+3);
       ukf_publisher->publish(odomUKF);
     }   
+}
+
+void QuadrotorUKFNode::init() {
+  
+    RCLCPP_INFO(this->get_logger(), "Quadrotor UKF Initialized");
 }
 
 // Callback for VIO data
@@ -110,6 +233,22 @@ void QuadrotorUKFNode::pose_to_tf_callback(const geometry_msgs::msg::PoseStamped
 {
     RCLCPP_INFO(this->get_logger(), "Received pose to TF data");
     // TODO: Convert pose to TF and publish it
+    static geometry_msgs::msg::TransformStamped static_transformStamped;
+    static_transformStamped.header.stamp = this->get_clock()->now();
+    static_transformStamped.header.frame_id = "map_ned";
+    static_transformStamped.child_frame_id = "base_link_frd";
+
+    static_transformStamped.transform.translation.x = msg->pose.position.x;
+    static_transformStamped.transform.translation.y = msg->pose.position.y;
+    static_transformStamped.transform.translation.z = msg->pose.position.z;
+
+    static_transformStamped.transform.rotation.x = msg->pose.orientation.x;
+    static_transformStamped.transform.rotation.y = msg->pose.orientation.y;
+    static_transformStamped.transform.rotation.z = msg->pose.orientation.z;
+    static_transformStamped.transform.rotation.w = msg->pose.orientation.w;
+
+
+    tf_broadcaster_->sendTransform(static_transformStamped);
 }
 
 int main(int argc, char *argv[])

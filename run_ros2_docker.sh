@@ -1,5 +1,7 @@
 #!/bin/bash
 
+docker rm ros2_qukf
+
 # XSOCK=/tmp/.X11-unix
 
 # docker run -it --rm \
@@ -18,6 +20,7 @@ docker run -it \
     --env="QT_X11_NO_MITSHM=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --network host \
+    --name ros2_qukf \
     ros2 
     #rqt
 export containerId=$(docker ps -l -q)

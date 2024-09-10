@@ -12,12 +12,21 @@ find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(Eigen3 3.3 REQUIRED)
+find_package(tf2_ros REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 include_directories(include)
 add_executable(quadrotor_ukf_ros2 src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
-ament_target_dependencies(quadrotor_ukf_ros2 rclcpp geometry_msgs nav_msgs std_msgs sensor_msgs)
+
+ament_target_dependencies(quadrotor_ukf_ros2 
+  rclcpp 
+  geometry_msgs 
+  nav_msgs std_msgs 
+  sensor_msgs 
+  tf2_ros
+)
+
 target_link_libraries(quadrotor_ukf_ros2 Eigen3::Eigen)
 
 install(TARGETS
