@@ -15,15 +15,19 @@ public:
     QuadrotorUKFNode()
     : Node("quadrotor_ukf_ros2")
     {
+        rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
+        qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
+        qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
+
         // Define the subscriptions to topics
         vio_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/qvio/odometry", 10, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
+            "/qvio/odometry", qos_profile, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
 
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/imu_apps", 10, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
+            "/imu_apps", qos_profile, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
 
         pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/qvio/pose", 10, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
+            "/qvio/pose", qos_profile, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
 
         ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
     }
