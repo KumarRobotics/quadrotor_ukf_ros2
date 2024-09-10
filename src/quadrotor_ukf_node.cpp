@@ -42,8 +42,63 @@ public:
         double stdW[3]       = {0,0,0};
         double stdAccBias[3] = {0,0,0};
 
+        // Parameter Declaration
+        this->declare_parameter<std::string>("odom", std::string("odom"));
+        this->declare_parameter<std::string>("imu", std::string("imu"));
+        this->declare_parameter<std::string>("base_link", std::string("base_link"));
+        this->declare_parameter<std::string>("base_link_frd", std::string("base_link_frd"));
+        this->declare_parameter<std::string>("imu_rotated_frame_id", std::string("imu_rotated_base"));
+        this->declare_parameter<double>("alpha", 0.4);
+        this->declare_parameter<double>("beta" , 2.0);
+        this->declare_parameter<double>("kappa", 0.0);
+        this->declare_parameter<double>("noise_std/process/acc/x", 0.2);
+        this->declare_parameter<double>("noise_std/process/acc/y", 0.2);
+        this->declare_parameter<double>("noise_std/process/acc/z", 0.2);
+        this->declare_parameter<double>("noise_std/process/w/x", 0.1);
+        this->declare_parameter<double>("noise_std/process/w/y", 0.1);
+        this->declare_parameter<double>("noise_std/process/w/z", 0.1);
+        this->declare_parameter<double>("noise_std/process/acc_bias/x", 0.05);
+        this->declare_parameter<double>("noise_std/process/acc_bias/y", 0.05);
+        this->declare_parameter<double>("noise_std/process/acc_bias/z", 0.05);
+
+        // Parameter Retrieval
+        this->get_parameter("odom", odom_frame_id_);
+        this->get_parameter("imu", imu_frame_id_);
+        this->get_parameter("base_link", body_frame_id_);
+        this->get_parameter("base_link_frd", body_local_frame_id_);
+        this->get_parameter("imu_rotated_frame_id", imu_rotated_base_frame_id_);
+        this->get_parameter("alpha", alpha);
+        this->get_parameter("beta" , beta );
+        this->get_parameter("kappa", kappa);
+        this->get_parameter("noise_std/process/acc/x", stdAcc[0]);
+        this->get_parameter("noise_std/process/acc/y", stdAcc[1]);
+        this->get_parameter("noise_std/process/acc/z", stdAcc[2]);
+        this->get_parameter("noise_std/process/w/x", stdW[0]);
+        this->get_parameter("noise_std/process/w/y", stdW[1]);
+        this->get_parameter("noise_std/process/w/z", stdW[2]);
+        this->get_parameter("noise_std/process/acc_bias/x", stdAccBias[0]);
+        this->get_parameter("noise_std/process/acc_bias/y", stdAccBias[1]);
+        this->get_parameter("noise_std/process/acc_bias/z", stdAccBias[2]);
+
+        // Fixed process noise
+        Eigen::Matrix<double, 9, 9> Rv;
+        Rv.setIdentity();// = eye<mat>(9,9);
+        Rv(0,0)   = stdAcc[0] * stdAcc[0];
+        Rv(1,1)   = stdAcc[1] * stdAcc[1];
+        Rv(2,2)   = stdAcc[2] * stdAcc[2];
+        Rv(3,3)   = stdW[0] * stdW[0];
+        Rv(4,4)   = stdW[1] * stdW[1];
+        Rv(5,5)   = stdW[2] * stdW[2];
+        Rv(6,6)   = stdAccBias[0] * stdAccBias[0];
+        Rv(7,7)   = stdAccBias[1] * stdAccBias[1];
+        Rv(8,8)   = stdAccBias[2] * stdAccBias[2];
+
+        // Initialize UKF
+        quadrotorUKF_.SetUKFParameters(alpha, beta, kappa);
+        quadrotorUKF_.SetImuCovariance(Rv);
 
         // ROS2-Specific Initialization:
+        // qos profile to match voxl-mpa-to-ros2
         rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
         qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
         qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
@@ -108,12 +163,12 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
     u(5,0) = -msg->angular_velocity.z;
     if (calCnt_ < calLimit_)       // Calibration
     {
-      calCnt++;
+      calCnt_++;
       ag += u.block(0,0,3,1);//rows(0,2);
     }
     else if (calCnt_ == calLimit_) // Save gravity vector
     {
-      calCnt++;
+      calCnt_++;
       ag /= calLimit_;
       double g = ag.norm();//norm(ag,2);
       quadrotorUKF_.SetGravity(g);
