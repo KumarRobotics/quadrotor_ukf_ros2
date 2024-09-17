@@ -119,8 +119,8 @@ public:
             "/imu_apps", qos_profile, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
 
         // /qvio/pose for TF Correction
-        pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/qvio/pose", qos_profile, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
+        // pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        //     "/qvio/pose", qos_profile, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
 
         // output goal is to produce accurate odom at 300Hz on RELEASE build
         ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
@@ -133,12 +133,12 @@ public:
 private:
     void imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg);
     void vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg);
-    void pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr pose);
+    // void pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr pose);
 
     // Subscribers
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr vio_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_subscriber_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
+    // rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher;
 
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
@@ -229,27 +229,28 @@ void QuadrotorUKFNode::vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg
 }
 
 // Callback for pose to TF data
-void QuadrotorUKFNode::pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr msg)
-{
-    RCLCPP_INFO(this->get_logger(), "Received pose to TF data");
-    // TODO: Convert pose to TF and publish it
-    static geometry_msgs::msg::TransformStamped static_transformStamped;
-    static_transformStamped.header.stamp = this->get_clock()->now();
-    static_transformStamped.header.frame_id = "map_ned";
-    static_transformStamped.child_frame_id = "base_link_frd";
-
-    static_transformStamped.transform.translation.x = msg->pose.position.x;
-    static_transformStamped.transform.translation.y = msg->pose.position.y;
-    static_transformStamped.transform.translation.z = msg->pose.position.z;
-
-    static_transformStamped.transform.rotation.x = msg->pose.orientation.x;
-    static_transformStamped.transform.rotation.y = msg->pose.orientation.y;
-    static_transformStamped.transform.rotation.z = msg->pose.orientation.z;
-    static_transformStamped.transform.rotation.w = msg->pose.orientation.w;
-
-
-    tf_broadcaster_->sendTransform(static_transformStamped);
-}
+// void QuadrotorUKFNode::pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr msg)
+// {
+//   // TODO: GRAB FRAME ID FROM VOXL-MPA-TO-ROS2
+//     RCLCPP_INFO(this->get_logger(), "Received pose to TF data");
+//     // TODO: Convert pose to TF and publish it
+//     static geometry_msgs::msg::TransformStamped static_transformStamped;
+//     static_transformStamped.header.stamp = this->get_clock()->now();
+//     static_transformStamped.header.frame_id = "map_ned";
+//     static_transformStamped.child_frame_id = "base_link_frd";
+// 
+//     static_transformStamped.transform.translation.x = msg->pose.position.x;
+//     static_transformStamped.transform.translation.y = msg->pose.position.y;
+//     static_transformStamped.transform.translation.z = msg->pose.position.z;
+// 
+//     static_transformStamped.transform.rotation.x = msg->pose.orientation.x;
+//     static_transformStamped.transform.rotation.y = msg->pose.orientation.y;
+//     static_transformStamped.transform.rotation.z = msg->pose.orientation.z;
+//     static_transformStamped.transform.rotation.w = msg->pose.orientation.w;
+// 
+// 
+//     tf_broadcaster_->sendTransform(static_transformStamped);
+// }
 
 int main(int argc, char *argv[])
 {

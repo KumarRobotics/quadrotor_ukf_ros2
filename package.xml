@@ -15,5 +15,7 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+
+  <exec_depend>ros2launch</exec_depend>
 </package>
 

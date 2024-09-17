@@ -1,0 +1,37 @@
+<launch>
+  <arg name="use_vicon"      default="false"/>
+  <arg name="record_bag"      default="false"/>
+
+  <arg name="odom_slam_topic"      default="/qvio/odometry"/>
+  <arg name="imu_topic"            default="/imu_apps"/>
+  <arg name="odom_frame_id"        default="map"/>
+  <arg name="imu_frame_id"         default="imu"/>
+
+  <group if="$(arg record_bag)">
+    <node name="rosbag_recorder" pkg="rosbag" type="record" args="-a" output="screen" />
+  </group>
+
+  <node pkg="quadrotor_ukf" 
+    type="quadrotor_ukf" 
+    name="quadrotor_ukf" >
+    <remap from="~odom_slam" to="$(arg odom_slam_topic)"/>
+    <remap from="~imu" to="$(arg imu_topic)"/>
+    <param name="frame_id" value="$(arg odom_frame_id)"/>
+    <param name="imu_frame_id" value="$(arg imu_frame_id)" />
+  </node>
+
+  <!-- node pkg="tf2_ros" type="static_transform_publisher" name="map_enu_to_map_flu" args="0 0 0 1.57 0 0 map map_flu " / -->
+  <!-- node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom_tf" args="0 0 0 0 0 0 1 map_flu odom " / -->
+  <!-- node pkg="tf2_ros" type="static_transform_publisher" name="local_to_odom_tf" args="0 0 0 0 0 3.14 map_ned odom" /-->
+  <!-- node pkg="tf2_ros" type="static_transform_publisher" name="normalize_starling_coords" args="0 0 0 0 0 -3.14 base_link_frd base_link" /-->
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="body_to_imu_tf" args=".0407 -0.006 -0.0188 0 0 0 base_link_frd imu" />
+
+  <group if="$(arg use_vicon)">
+    <include file="$(find mocap_vicon)/launch/vicon.launch"></include>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="fixed_frame_vicon_tf" args="0 0 0 0 0 0 /odom /mocap" />
+  </group>
+
+  <!-- node name="rviz" pkg="rviz" type="rviz" args="-d $(find starling2_interface)/rviz/starling2.rviz" / -->
+
+</launch>
