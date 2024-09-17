@@ -6,7 +6,11 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"  
                                                     
 #include "tf2/LinearMath/Quaternion.h"
-#include "tf2_ros/static_transform_broadcaster.h"
+// #include "tf2_ros/static_transform_broadcaster.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
+#include "tf2/exceptions.h"
+#include <tf2_eigen/tf2_eigen.hpp>
                                                
 #include "quadrotor_ukf_ros2/quadrotor_ukf.h"
 #include "quadrotor_ukf_ros2/vio_utils.h"
@@ -103,11 +107,15 @@ public:
         quadrotorUKF_.SetImuCovariance(Rv);
 
         // ROS2-Specific Initialization:
+        // tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
         // qos profile to match voxl-mpa-to-ros2
-        tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
         rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
         qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
         qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
+                                                                     
+        // TF members for imu to body offsets
+        tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
         // Define the subscriptions to topics
         // qvio/odometry for QuadrotorUKF Update
@@ -125,6 +133,8 @@ public:
         // output goal is to produce accurate odom at 300Hz on RELEASE build
         ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
 
+        init();
+
     }
 
     void init();
@@ -141,7 +151,9 @@ private:
     // rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher;
 
-    std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
+    // std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     //arma::mat H_C_B = arma::eye<mat>(4,4);//Never use reshape
     Eigen::Matrix<double, 4, 4> H_C_B_;
     Eigen::Matrix<double, 4, 4> H_I_B_;
@@ -158,6 +170,56 @@ private:
     bool tf_initialized_;
     geometry_msgs::msg::TransformStamped tf_imu_to_base_;
 };
+
+void QuadrotorUKFNode::init()
+{
+  // ros::Rate rate(2.0);
+  // while (nh_.ok() && !tf_initialized_)
+  // {
+  //   try
+  //   {
+  //     tf_imu_to_base_ = tfBuffer_.lookupTransform(body_frame_id_, imu_frame_id_, ros::Time(0));
+
+  //     //Get the rotation matrix and compose Homogenous matrix (without translation)
+  //     Eigen::Affine3d R_I_B = tf2::transformToEigen(tf_imu_to_base_);
+  //     H_I_B_.block(0,0,3,3) = R_I_B.rotation();
+  //     H_I_B_(3,3) = 1;
+
+
+  //     ROS_DEBUG_STREAM("Got imu to imu_rotated_base tf " << tf_imu_to_base_);
+  //     ROS_DEBUG_STREAM("H_I_B\n" << H_I_B_);
+
+  //     tf_initialized_ = true;
+  //   }
+  //   catch (tf2::TransformException &ex)
+  //   {
+  //     ROS_WARN_THROTTLE(1, "Failed to find transform from [%s] to [%s]",
+  //                       imu_frame_id_.c_str(), imu_rotated_base_frame_id_.c_str());
+  //   }
+  // }
+
+  rclcpp::Rate rate(2);
+  while(rclcpp::ok() && !tf_initialized_) {
+    try {
+      tf_imu_to_base_ = tf_buffer_->lookupTransform(body_frame_id_, imu_frame_id_, tf2::TimePointZero);
+      //Get the rotation matrix and compose Homogenous matrix (without translation)
+      Eigen::Affine3d R_I_B = tf2::transformToEigen(tf_imu_to_base_);
+      H_I_B_.block(0,0,3,3) = R_I_B.rotation();
+      H_I_B_(3,3) = 1;
+      tf_initialized_ = true;
+
+    } 
+    catch (tf2::TransformException &ex)
+    {
+      RCLCPP_WARN(this->get_logger(), "Failed to get TF!");
+    }
+    rate.sleep();
+
+  }
+
+  // tfListener_.reset();
+  RCLCPP_INFO(this->get_logger(), "Quadrotor UKF Initialized");
+}
 
 // Callback for IMU data
 void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
@@ -216,10 +278,6 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
     }   
 }
 
-void QuadrotorUKFNode::init() {
-  
-    RCLCPP_INFO(this->get_logger(), "Quadrotor UKF Initialized");
-}
 
 // Callback for VIO data
 void QuadrotorUKFNode::vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg)

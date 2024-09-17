@@ -21,7 +21,7 @@
   </node>
 
 
-  <!--node pkg="tf2_ros" exec="static_transform_publisher" name="body_to_imu_tf" args=".0407 -0.006 -0.0188 0 0 0 base_link imu" /-->
+  <node pkg="tf2_ros" exec="static_transform_publisher" name="body_to_imu_tf" args=".0407 0.006 0.0188 0 0 0 base_link imu" />
 
   <!--group if="$(arg use_vicon)"-->
     <!--include file="$(find mocap_vicon)/launch/vicon.launch"></include-->
