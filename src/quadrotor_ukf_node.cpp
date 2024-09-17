@@ -131,25 +131,27 @@ public:
         //     "/qvio/pose", qos_profile, std::bind(&QuadrotorUKFNode::pose_to_tf_callback, this, std::placeholders::_1));
 
         // output goal is to produce accurate odom at 300Hz on RELEASE build
-        ukf_publisher = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
+        ukf_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("control_odom", 10);
+        bias_publisher_ = this->create_publisher<geometry_msgs::msg::Vector3>("imu_bias", 10);
 
-        init();
+        Init();
 
     }
 
-    void init();
 
 
 private:
     void imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg);
     void vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg);
+    void Init();
     // void pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr pose);
 
     // Subscribers
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr vio_subscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_subscriber_;
     // rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_to_tf_subscriber_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr ukf_publisher_;
+    rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr bias_publisher_;
 
     // std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
@@ -171,7 +173,7 @@ private:
     geometry_msgs::msg::TransformStamped tf_imu_to_base_;
 };
 
-void QuadrotorUKFNode::init()
+void QuadrotorUKFNode::Init()
 {
   // ros::Rate rate(2.0);
   // while (nh_.ok() && !tf_initialized_)
@@ -251,7 +253,7 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
       nav_msgs::msg::Odometry odomUKF;
       // Publish odom
       odomUKF.header.stamp = quadrotorUKF_.GetStateTime();
-      odomUKF.header.frame_id = frame_id;
+      odomUKF.header.frame_id = odom_frame_id_;
       Eigen::Matrix<double, Eigen::Dynamic, 1> x = quadrotorUKF_.GetState();
       odomUKF.pose.pose.position.x = x(0,0);
       odomUKF.pose.pose.position.y = x(1,0);
@@ -274,7 +276,12 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
       for (int j = 0; j < 3; j++)
         for (int i = 0; i < 3; i++)
           odomUKF.twist.covariance[i+j*6] = P(i+3 , j+3);
-      ukf_publisher->publish(odomUKF);
+      ukf_publisher_->publish(odomUKF);
+      geometry_msgs::msg::Vector3 bias;
+      bias.x = x(9);
+      bias.y = x(10);
+      bias.z = x(11);
+      bias_publisher_->publish(bias);
     }   
 }
 
@@ -282,33 +289,95 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
 // Callback for VIO data
 void QuadrotorUKFNode::vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg)
 {
-    RCLCPP_INFO(this->get_logger(), "Received VIO data");
+    // RCLCPP_INFO(this->get_logger(), "Received VIO data");
     // TODO: Add VIO data processing for UKF
-}
+    if (isnan(msg->pose.pose.position.x) || isnan(msg->pose.pose.position.y) || isnan(msg->pose.pose.position.z) ||
+        isnan(msg->pose.pose.orientation.x) || isnan(msg->pose.pose.orientation.y) || isnan(msg->pose.pose.orientation.z) || 
+        isnan(msg->pose.pose.orientation.w))
+    {
+      RCLCPP_WARN(this->get_logger(), "One or more pose fields are NaN!");
+    }
 
-// Callback for pose to TF data
-// void QuadrotorUKFNode::pose_to_tf_callback(const geometry_msgs::msg::PoseStamped::UniquePtr msg)
-// {
-//   // TODO: GRAB FRAME ID FROM VOXL-MPA-TO-ROS2
-//     RCLCPP_INFO(this->get_logger(), "Received pose to TF data");
-//     // TODO: Convert pose to TF and publish it
-//     static geometry_msgs::msg::TransformStamped static_transformStamped;
-//     static_transformStamped.header.stamp = this->get_clock()->now();
-//     static_transformStamped.header.frame_id = "map_ned";
-//     static_transformStamped.child_frame_id = "base_link_frd";
-// 
-//     static_transformStamped.transform.translation.x = msg->pose.position.x;
-//     static_transformStamped.transform.translation.y = msg->pose.position.y;
-//     static_transformStamped.transform.translation.z = msg->pose.position.z;
-// 
-//     static_transformStamped.transform.rotation.x = msg->pose.orientation.x;
-//     static_transformStamped.transform.rotation.y = msg->pose.orientation.y;
-//     static_transformStamped.transform.rotation.z = msg->pose.orientation.z;
-//     static_transformStamped.transform.rotation.w = msg->pose.orientation.w;
-// 
-// 
-//     tf_broadcaster_->sendTransform(static_transformStamped);
-// }
+    // Check if the twist fields are NaN
+    if (isnan(msg->twist.twist.linear.x) || isnan(msg->twist.twist.linear.y) || isnan(msg->twist.twist.linear.z) ||
+        isnan(msg->twist.twist.angular.x) || isnan(msg->twist.twist.angular.y) || isnan(msg->twist.twist.angular.z))
+    {
+      RCLCPP_WARN(this->get_logger(), "One or more twist fields are NaN!");
+    }
+    if(!tf_initialized_)
+      return;
+
+    // Get orientation
+    Eigen::Matrix<double, 4, 1> q;
+    q(0,0) = msg->pose.pose.orientation.w;
+    q(1,0) = msg->pose.pose.orientation.x;
+    q(2,0) = msg->pose.pose.orientation.y;
+    q(3,0) = msg->pose.pose.orientation.z;
+    Eigen::Matrix<double, 3, 1> ypr = VIOUtil::R_to_ypr(VIOUtil::QuatToMat(q));
+
+    // Assemble measurement
+    Eigen::Matrix<double, 6, 1> z;
+    z(0,0) = msg->pose.pose.position.x;
+    z(1,0) = msg->pose.pose.position.y;
+    z(2,0) = msg->pose.pose.position.z;
+    z(3,0) = ypr(0,0);
+    z(4,0) = ypr(1,0);
+    z(5,0) = ypr(2,0);
+
+    // Assemble measurement covariance
+    Eigen::Matrix<double, 6, 6> RnSLAM;
+    RnSLAM.setZero();
+    RnSLAM(0,0) = msg->pose.covariance[0];
+    RnSLAM(1,1) = msg->pose.covariance[1+1*6];
+    RnSLAM(2,2) = msg->pose.covariance[2+2*6];
+    RnSLAM(3,3) = msg->pose.covariance[3+3*6];
+    RnSLAM(4,4) = msg->pose.covariance[4+4*6];
+    RnSLAM(5,5) = msg->pose.covariance[5+5*6];
+
+    //rotate the measurement for control purpose
+    Eigen::Matrix<double, 4, 4> H_C_C0;
+    H_C_C0.setIdentity();
+    H_C_C0.block(0, 0, 3, 3) = VIOUtil::QuatToMat(q);
+    H_C_C0(0,3) = z(0,0);
+    H_C_C0(1,3) = z(1,0);
+    H_C_C0(2,3) = z(2,0);
+
+    //robot frame
+    Eigen::Matrix<double, 4, 4> H_R_R0;
+    H_R_R0.setIdentity();
+    H_R_R0 = H_I_B_*H_C_C0*H_I_B_.inverse();
+
+    //Set the rotation
+    Eigen::Matrix<double, 4, 1> q_R_R0 = VIOUtil::MatToQuat(H_R_R0.block(0, 0, 3, 3));
+
+    // Assemble measurement
+    Eigen::Matrix<double, 6, 1> z_new;
+    z_new(0,0) = H_R_R0(0,3);
+    z_new(1,0) = H_R_R0(1,3);
+    z_new(2,0) = H_R_R0(2,3);
+
+    //define the matrix to rotate in the original frame
+    Eigen::Matrix<double, 3, 1> ypr_new = VIOUtil::R_to_ypr(VIOUtil::QuatToMat(q_R_R0));
+    z_new(3,0) = ypr_new(0,0);
+    z_new(4,0) = ypr_new(1,0);
+    z_new(5,0) = ypr_new(2,0);
+
+    //rotate the covariance
+    Eigen::Matrix<double, 6, 6>  RnSLAM_new;
+    RnSLAM_new.setZero();
+    RnSLAM_new.block(0,0,3,3) = H_I_B_.block(0, 0, 3, 3)*RnSLAM.block(0,0,3,3)*H_I_B_.block(0, 0, 3, 3).transpose();
+    RnSLAM_new.block(3,3,3,3) = H_I_B_.block(0, 0, 3, 3)*RnSLAM.block(3,3,3,3)*H_I_B_.block(0, 0, 3, 3).transpose();
+
+    // Measurement update
+    if (quadrotorUKF_.isInitialized())
+    {
+      quadrotorUKF_.MeasurementUpdateSLAM(z_new, RnSLAM_new, msg->header.stamp);
+    }
+    else
+    {
+      quadrotorUKF_.SetInitPose(z, msg->header.stamp);
+    }
+}
 
 int main(int argc, char *argv[])
 {
