@@ -20,8 +20,8 @@
 class QuadrotorUKFNode : public rclcpp::Node
 {
 public:
-    QuadrotorUKFNode()
-    : Node("quadrotor_ukf_ros2")
+    QuadrotorUKFNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+    : Node("quadrotor_ukf_ros2", options)
     {
         // Quadrotor UKF Initialization
         H_C_B_(0,0) = 1;
@@ -52,8 +52,8 @@ public:
         double stdAccBias[3] = {0,0,0};
 
         // Parameter Declaration
-        this->declare_parameter<std::string>("odom", std::string("odom"));
-        this->declare_parameter<std::string>("imu", std::string("imu"));
+        this->declare_parameter<std::string>("odom_frame_id", std::string("odom"));
+        this->declare_parameter<std::string>("imu_frame_id", std::string("imu"));
         this->declare_parameter<std::string>("base_link", std::string("base_link"));
         this->declare_parameter<std::string>("base_link_frd", std::string("base_link_frd"));
         this->declare_parameter<std::string>("imu_rotated_frame_id", std::string("imu_rotated_base"));
@@ -71,8 +71,8 @@ public:
         this->declare_parameter<double>("noise_std/process/acc_bias/z", 0.05);
 
         // Parameter Retrieval
-        this->get_parameter("odom", odom_frame_id_);
-        this->get_parameter("imu", imu_frame_id_);
+        this->get_parameter("odom_frame_id", odom_frame_id_);
+        this->get_parameter("imu_frame_id", imu_frame_id_);
         this->get_parameter("base_link", body_frame_id_);
         this->get_parameter("base_link_frd", body_local_frame_id_);
         this->get_parameter("imu_rotated_frame_id", imu_rotated_base_frame_id_);
@@ -109,9 +109,9 @@ public:
         // ROS2-Specific Initialization:
         // tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
         // qos profile to match voxl-mpa-to-ros2
-        rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
-        qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
-        qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
+        //rclcpp::QoS qos_profile(rclcpp::KeepLast(10));  // History policy
+        //qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);  // Reliability policy
+        //qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);  // Durability policy
                                                                      
         // TF members for imu to body offsets
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -120,11 +120,11 @@ public:
         // Define the subscriptions to topics
         // qvio/odometry for QuadrotorUKF Update
         vio_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", qos_profile, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
+            "/odom", 10, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
 
         // /imu_apps for QuadrotorUKF Prediction
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/imu", qos_profile, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
+            "/imu", 10, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
 
         // /qvio/pose for TF Correction
         // pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -230,11 +230,11 @@ void QuadrotorUKFNode::imu_callback(const sensor_msgs::msg::Imu::UniquePtr msg)
     static Eigen::Matrix<double, 3, 1> ag;
     Eigen::Matrix<double, 6, 1> u;
     u(0,0) = msg->linear_acceleration.x;
-    u(1,0) = -msg->linear_acceleration.y;
-    u(2,0) = -msg->linear_acceleration.z;
+    u(1,0) = msg->linear_acceleration.y;
+    u(2,0) = msg->linear_acceleration.z;
     u(3,0) = msg->angular_velocity.x;
-    u(4,0) = -msg->angular_velocity.y;
-    u(5,0) = -msg->angular_velocity.z;
+    u(4,0) = msg->angular_velocity.y;
+    u(5,0) = msg->angular_velocity.z;
     if (calCnt_ < calLimit_)       // Calibration
     {
       calCnt_++;
@@ -379,11 +379,7 @@ void QuadrotorUKFNode::vio_callback(const nav_msgs::msg::Odometry::UniquePtr msg
     }
 }
 
-int main(int argc, char *argv[])
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<QuadrotorUKFNode>());
-    rclcpp::shutdown();
-    return 0;
-}
+// Register the component
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(QuadrotorUKFNode)
 

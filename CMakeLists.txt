@@ -8,6 +8,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -18,22 +19,30 @@ find_package(tf2_eigen REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 include_directories(include)
-add_executable(quadrotor_ukf_ros2 src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
 
-ament_target_dependencies(quadrotor_ukf_ros2 
+# Build component library
+add_library(quadrotor_ukf_component SHARED src/quadrotor_ukf_node.cpp src/quadrotor_ukf.cpp src/vio_utils.cpp)
+
+ament_target_dependencies(quadrotor_ukf_component 
   rclcpp 
+  rclcpp_components
   geometry_msgs 
-  nav_msgs std_msgs 
+  nav_msgs 
   sensor_msgs 
   tf2_ros
   tf2_eigen
 )
 
-target_link_libraries(quadrotor_ukf_ros2 Eigen3::Eigen)
+target_link_libraries(quadrotor_ukf_component Eigen3::Eigen)
+
+# Register the component
+rclcpp_components_register_nodes(quadrotor_ukf_component "QuadrotorUKFNode")
 
 install(TARGETS
-  quadrotor_ukf_ros2
-  DESTINATION lib/${PROJECT_NAME}
+  quadrotor_ukf_component
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 install(
