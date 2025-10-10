@@ -120,11 +120,11 @@ public:
         // Define the subscriptions to topics
         // qvio/odometry for QuadrotorUKF Update
         vio_subscriber_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", 10, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
+            "odom", 10, std::bind(&QuadrotorUKFNode::vio_callback, this, std::placeholders::_1));
 
         // /imu_apps for QuadrotorUKF Prediction
         imu_subscriber_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/imu", 10, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
+            "imu", 10, std::bind(&QuadrotorUKFNode::imu_callback, this, std::placeholders::_1));
 
         // /qvio/pose for TF Correction
         // pose_to_tf_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
